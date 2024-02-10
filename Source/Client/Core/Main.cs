@@ -1,9 +1,11 @@
 ﻿using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using RimworldTogether.GameClient.Files;
+using RimworldTogether.GameClient.Managers;
 using RimworldTogether.GameClient.Misc;
 using RimworldTogether.GameClient.Values;
-using RimworldTogether.Shared.Misc;
+using RimworldTogether.Shared.Serializers;
 using UnityEngine;
 using Verse;
 
@@ -36,6 +38,9 @@ namespace RimworldTogether.GameClient.Core
                 PreparePaths();
                 LoadClientPreferences();
                 CreateUnityDispatcher();
+
+                //ZipFile.ExtractToDirectory(Path.Combine(GenFilePaths.ModsFolderPath, "Required.zip"), GenFilePaths.ModsFolderPath);
+                //File.Delete(Path.Combine(GenFilePaths.ModsFolderPath, "Required.zip"));
             }
 
             private static void PrepareCulture()
@@ -46,14 +51,14 @@ namespace RimworldTogether.GameClient.Core
                 CultureInfo.DefaultThreadCurrentUICulture = new CultureInfo("en-US", false);
             }
 
-            public static void PreparePaths()
+            private static void PreparePaths()
             {
-                mainPath = Application.persistentDataPath;
+                mainPath = GenFilePaths.SaveDataFolderPath;
                 modPath = Path.Combine(mainPath, "Rimworld Together");
                 connectionDataPath = Path.Combine(modPath, "ConnectionData.json");
                 loginDataPath = Path.Combine(modPath, "LoginData.json");
                 clientPreferencesPath = Path.Combine(modPath, "Preferences.json");
-                savesPath = Path.Combine(mainPath, "Saves");
+                savesPath = GenFilePaths.SavedGamesFolderPath;
 
                 if (!Directory.Exists(modPath)) Directory.CreateDirectory(modPath);
             }
@@ -74,11 +79,11 @@ namespace RimworldTogether.GameClient.Core
                     ClientValues.autosaveDays = 3;
                     ClientValues.autosaveInternalTicks = Mathf.RoundToInt(ClientValues.autosaveDays * 60000f);
 
-                    Saver.SaveClientPreferences(ClientValues.autosaveDays.ToString());
+                    PreferenceManager.SaveClientPreferences(ClientValues.autosaveDays.ToString());
                 }
             }
 
-            public static void CreateUnityDispatcher()
+            private static void CreateUnityDispatcher()
             {
                 if (threadDispatcher == null)
                 {
@@ -86,7 +91,7 @@ namespace RimworldTogether.GameClient.Core
                     threadDispatcher = go.AddComponent(typeof(UnityMainThreadDispatcher)) as UnityMainThreadDispatcher;
                     Object.Instantiate(go);
 
-                    Log.Message("Created Rimworld Together Dispatcher");
+                    Log.Message($"[Rimworld Together] > Created dispatcher for version {ClientValues.versionCode}");
                 }
             }
         }

@@ -1,123 +1,97 @@
-﻿using RimworldTogether.GameServer.Core;
+﻿using Newtonsoft.Json;
+using RimworldTogether.GameServer.Core;
+using RimworldTogether.GameServer.Files;
 using RimworldTogether.GameServer.Misc;
 using RimworldTogether.GameServer.Network;
 using RimworldTogether.Shared.JSON;
+using RimworldTogether.Shared.Misc;
+using RimworldTogether.Shared.Network;
+using RimworldTogether.Shared.Serializers;
+using Shared.JSON;
+using Shared.Misc;
+using Shared.Network;
+using System.Diagnostics;
+using System.IO;
+using System.IO.Compression;
+using System.Reflection;
 
 namespace RimworldTogether.GameServer.Managers
 {
     public static class ModManager
     {
+        public static List<ModFile> requiredMods = new List<ModFile>();
+        public static List<ModFile> optionalMods = new List<ModFile>();
+
+        public enum ModType { Required, Optional }
+
         public static void LoadMods()
         {
-            Program.loadedRequiredMods.Clear();
-            string[] requiredModsToLoad = Directory.GetDirectories(Program.requiredModsPath);
-            foreach (string modPath in requiredModsToLoad)
-            {
-                try
-                {
-                    string aboutFile = Directory.GetFiles(modPath, "About.xml", SearchOption.AllDirectories)[0];
-                    foreach (string str in XmlParser.ParseDataFromXML(aboutFile, "packageId"))
-                    {
-                        if (!Program.loadedRequiredMods.Contains(str.ToLower())) Program.loadedRequiredMods.Add(str.ToLower());
-                    }
-                }
-                catch { Logger.WriteToConsole($"[Error] > Failed to load About.xml of mod at '{modPath}'", Logger.LogMode.Error); }
-            }
+            Logger.WriteToConsole($"Checking for server mods.", Logger.LogMode.Warning);
 
-            Logger.WriteToConsole($"Loaded required mods [{Program.loadedRequiredMods.Count()}]");
-
-            Program.loadedOptionalMods.Clear();
-            string[] optionalModsToLoad = Directory.GetDirectories(Program.optionalModsPath);
-            foreach (string modPath in optionalModsToLoad)
-            {
-                try
-                {
-                    string aboutFile = Directory.GetFiles(modPath, "About.xml", SearchOption.AllDirectories)[0];
-                    foreach (string str in XmlParser.ParseDataFromXML(aboutFile, "packageId"))
-                    {
-                        if (!Program.loadedOptionalMods.Contains(str.ToLower())) Program.loadedOptionalMods.Add(str.ToLower());
-                    }
-                }
-                catch { Logger.WriteToConsole($"[Error] > Failed to load About.xml of mod at '{modPath}'", Logger.LogMode.Error); }
-            }
-
-            Logger.WriteToConsole($"Loaded optional mods [{Program.loadedOptionalMods.Count()}]");
-
-            Program.loadedForbiddenMods.Clear();
-            string[] forbiddenModsToLoad = Directory.GetDirectories(Program.forbiddenModsPath);
-            foreach (string modPath in forbiddenModsToLoad)
-            {
-                try
-                {
-                    string aboutFile = Directory.GetFiles(modPath, "About.xml", SearchOption.AllDirectories)[0];
-                    foreach (string str in XmlParser.ParseDataFromXML(aboutFile, "packageId"))
-                    {
-                        if (!Program.loadedForbiddenMods.Contains(str.ToLower())) Program.loadedForbiddenMods.Add(str.ToLower());
-                    }
-                }
-                catch { Logger.WriteToConsole($"[Error] > Failed to load About.xml of mod at '{modPath}'", Logger.LogMode.Error); }
-            }
-
-            Logger.WriteToConsole($"Loaded forbidden mods [{Program.loadedForbiddenMods.Count()}]");
+            ZipModFolder(ModType.Required);
+            ZipModFolder(ModType.Optional);
         }
 
-        public static bool CheckIfModConflict(Client client, LoginDetailsJSON loginDetailsJSON)
+        private static void ZipModFolder(ModType modType)
         {
-            List<string> conflictingMods = new List<string>();
+            string pathToUse = "";
+            if (modType == ModType.Required) pathToUse = Program.requiredModsPath;
+            else if (modType == ModType.Optional) pathToUse = Program.optionalModsPath;
 
-            if (Program.loadedRequiredMods.Count() > 0)
-            {
-                foreach (string mod in Program.loadedRequiredMods)
-                {
-                    if (!loginDetailsJSON.runningMods.Contains(mod))
-                    {
-                        conflictingMods.Add($"[Required] > {mod}");
-                        continue;
-                    }
-                }
-
-                foreach (string mod in loginDetailsJSON.runningMods)
-                {
-                    if (!Program.loadedRequiredMods.Contains(mod) && !Program.loadedOptionalMods.Contains(mod))
-                    {
-                        conflictingMods.Add($"[Disallowed] > {mod}");
-                        continue;
-                    }
-                }
-            }
-
-            if (Program.loadedForbiddenMods.Count() > 0)
-            {
-                foreach (string mod in Program.loadedForbiddenMods)
-                {
-                    if (loginDetailsJSON.runningMods.Contains(mod))
-                    {
-                        conflictingMods.Add($"[Forbidden] > {mod}");
-                    }
-                }
-            }
-
-            if (conflictingMods.Count == 0)
-            {
-                client.runningMods = loginDetailsJSON.runningMods;
-                return false;
-            }
-
+            if (GetModCountInFolder(pathToUse) == 0) return;
             else
             {
-                if(client.isAdmin)
+                string zipPath = Path.Combine(pathToUse + ".zip");
+
+                if (File.Exists(zipPath))
                 {
-                    Logger.WriteToConsole($"[Mod bypass] > {client.username}", Logger.LogMode.Warning);
-                    client.runningMods = loginDetailsJSON.runningMods;
-                    return false;
+                    Logger.WriteToConsole($"Zip file at '{zipPath}' already existed, ignoring.", Logger.LogMode.Warning);
                 }
 
                 else
                 {
-                    UserManager_Joinings.SendLoginResponse(client, UserManager_Joinings.LoginResponse.WrongMods, conflictingMods);
-                    return true;
+                    ZipFile.CreateFromDirectory(pathToUse, zipPath);
+                    Logger.WriteToConsole($"Prepared mod zip file at '{zipPath}'", Logger.LogMode.Warning);
                 }
             }
+        }
+
+        public static void SendModListPartToClient(ServerClient client)
+        {
+            if (client.uploadManager == null)
+            {
+                Logger.WriteToConsole($"[Send mods] > {client.username} | {client.SavedIP}");
+
+                client.uploadManager = new UploadManager();
+                client.uploadManager.PrepareUpload(Program.modsPath + Path.DirectorySeparatorChar + "Required.zip");
+            }
+
+            FileTransferJSON fileTransferJSON = new FileTransferJSON();
+            fileTransferJSON.fileSize = client.uploadManager.fileSize;
+            fileTransferJSON.fileParts = client.uploadManager.fileParts;
+            fileTransferJSON.fileBytes = client.uploadManager.ReadFilePart();
+            fileTransferJSON.isLastPart = client.uploadManager.isLastPart;
+
+            Packet packet = Packet.CreatePacketFromJSON(nameof(PacketHandler.ManageModlistPacket), fileTransferJSON);
+            client.clientListener.SendData(packet);
+
+            if (client.uploadManager.isLastPart) client.uploadManager = null;
+        }
+
+        private static int GetModCountInFolder(string pathToCheck)
+        {
+            return Directory.GetDirectories(pathToCheck).Count();
+        }
+
+        public static bool CheckIfModConflict(ServerClient client, JoinDetailsJSON loginDetails)
+        {
+            //SendModListPartToClient(client);
+
+            //TODO
+            //Create 2 FileTransferJSONs to send both the required mods and the optional ones, if any
+            //Also check if the client already had the mods needed
+
+            return false;
         }
     }
 }

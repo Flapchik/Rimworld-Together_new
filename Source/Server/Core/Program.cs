@@ -2,7 +2,7 @@
 using RimworldTogether.GameServer.Files;
 using RimworldTogether.GameServer.Managers;
 using RimworldTogether.GameServer.Misc;
-using RimworldTogether.Shared.Misc;
+using RimworldTogether.Shared.Serializers;
 
 namespace RimworldTogether.GameServer.Core
 {
@@ -21,11 +21,6 @@ namespace RimworldTogether.GameServer.Core
         public static string modsPath;
         public static string requiredModsPath;
         public static string optionalModsPath;
-        public static string forbiddenModsPath;
-
-        public static List<string> loadedRequiredMods = new List<string>();
-        public static List<string> loadedOptionalMods = new List<string>();
-        public static List<string> loadedForbiddenMods = new List<string>();
 
         public static ServerConfigFile serverConfig;
         public static ServerValuesFile serverValues;
@@ -36,10 +31,10 @@ namespace RimworldTogether.GameServer.Core
         public static ActionValuesFile actionValues;
         public static WhitelistFile whitelist;
 
-        public static string serverVersion = "1.0.8";
+        public static string serverVersion = "1.1.1";
 
+        public static CancellationToken serverCancelationToken;
         public static bool isClosing;
-        public static CancellationToken serverCancelationToken = new();
 
         public static void Main()
         {
@@ -107,7 +102,6 @@ namespace RimworldTogether.GameServer.Core
             modsPath = Path.Combine(mainPath, "Mods");
             requiredModsPath = Path.Combine(modsPath, "Required");
             optionalModsPath = Path.Combine(modsPath, "Optional");
-            forbiddenModsPath = Path.Combine(modsPath, "Forbidden");
 
             if (!Directory.Exists(corePath)) Directory.CreateDirectory(corePath);
             if (!Directory.Exists(usersPath)) Directory.CreateDirectory(usersPath);
@@ -121,7 +115,6 @@ namespace RimworldTogether.GameServer.Core
             if (!Directory.Exists(modsPath)) Directory.CreateDirectory(modsPath);
             if (!Directory.Exists(requiredModsPath)) Directory.CreateDirectory(requiredModsPath);
             if (!Directory.Exists(optionalModsPath)) Directory.CreateDirectory(optionalModsPath);
-            if (!Directory.Exists(forbiddenModsPath)) Directory.CreateDirectory(forbiddenModsPath);
         }
 
         private static void LoadServerConfig()
